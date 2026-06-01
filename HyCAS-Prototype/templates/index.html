@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HyCAS - Professional Cataloging</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Courier+Prime&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      /* --- CATALOG CARD SPECIFIC STYLES --- */
+      :root {
+        --card-width: 5in;
+        --card-height: 3in;
+        --cream-paper: #fdfbf7;
+      }
+
+      #catalog-card {
+        width: var(--card-width);
+        height: var(--card-height);
+        background-color: var(--cream-paper);
+        padding: 0.25in;
+        box-sizing: border-box;
+        position: relative;
+        font-family: "Courier Prime", "Courier New", monospace;
+        font-size: 11pt;
+        line-height: 1.2;
+        color: #222;
+        display: grid;
+        grid-template-columns: 0.8in 1fr; /* Left margin for Call Num, Right for Body */
+        box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.2);
+        overflow: hidden;
+      }
+
+      .call-number {
+        font-weight: bold;
+        padding-right: 10px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .card-body {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .author-line {
+        font-weight: bold;
+      }
+      .title-paragraph {
+        text-indent: 1em;
+        margin-top: 4px;
+      }
+      .physical-desc {
+        margin-top: 4px;
+        text-indent: 1em;
+      }
+      .tracings {
+        margin-top: auto;
+        font-size: 9pt;
+        padding-top: 10px;
+      }
+
+      .hole-punch {
+        position: absolute;
+        bottom: 15px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 20px;
+        height: 20px;
+        background-color: rgba(0, 0, 0, 0.1);
+        border-radius: 50%;
+        border: 1px dashed #aaa;
+      }
+
+      /* Unified search bar */
+      .search-bar {
+        display: flex;
+        border: 2px solid #d1d5db;
+        border-radius: 8px;
+        overflow: hidden;
+        transition: border-color 0.2s, box-shadow 0.2s;
+        background: white;
+      }
+      .search-bar:focus-within {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+      }
+      .search-type-select {
+        border: none;
+        border-right: 2px solid #e5e7eb;
+        background: #f9fafb;
+        color: #1e40af;
+        font-weight: 700;
+        font-size: 0.82rem;
+        padding: 0 28px 0 12px;
+        cursor: pointer;
+        outline: none;
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231e40af' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+        min-width: 130px;
+      }
+      .search-input {
+        flex: 1;
+        border: none;
+        padding: 14px 16px;
+        font-size: 1rem;
+        outline: none;
+        background: transparent;
+      }
+      .search-btn {
+        background: #1d4ed8;
+        color: white;
+        border: none;
+        padding: 0 28px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .search-btn:hover {
+        background: #1e40af;
+      }
+
+      /* Results slide-in */
+      #resultsPanel {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.35s ease;
+      }
+      #resultsPanel.open {
+        max-height: 800px;
+      }
+
+      /* Source badges */
+      .badge-loc {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .badge-ol {
+        background: #fef9c3;
+        color: #854d0e;
+      }
+      .badge-google {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+
+      .results-table th,
+      .results-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #e5e7eb;
+        vertical-align: top;
+      }
+      .results-table tr:last-child td {
+        border-bottom: none;
+      }
+      .back-results-btn {
+        color: #1d4ed8;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body class="bg-gray-100 min-h-screen font-sans">
+    <nav class="bg-blue-900 text-white p-4 shadow-lg">
+      <div class="container mx-auto flex justify-between items-center">
+        <h1 class="text-2xl font-bold">
+          <i class="fas fa-swatchbook mr-2"></i>HyCAS
+          <span class="text-sm font-light text-blue-200"
+            >Cataloging Workstation</span
+          >
+        </h1>
+        <div
+          class="bg-blue-800 px-3 py-1 rounded text-xs uppercase tracking-wide"
+        >
+          Connected to LOC SRU
+        </div>
+      </div>
+    </nav>
+
+    <div class="container mx-auto p-8 max-w-5xl">
+      <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-8">
+        <div class="search-bar">
+          <select
+            id="searchType"
+            class="search-type-select"
+            onchange="onTypeChange()"
+          >
+            <option value="isbn">ISBN</option>
+            <option value="title">Title</option>
+            <option value="author"> Author</option>
+          </select>
+          <input
+            type="text"
+            id="searchInput"
+            class="search-input"
+            placeholder="Scan or type an ISBN..."
+            onkeydown="if(event.key==='Enter') doSearch()"
+          />
+          <button class="search-btn" onclick="doSearch()">
+            <i class="fas fa-search"></i> Search
+          </button>
+        </div>
+
+        <div class="flex items-center justify-between mt-3">
+          <p id="resultsSubtitle" class="text-sm text-gray-500"></p>
+          <button
+            id="backToResultsBtn"
+            class="back-results-btn hidden"
+            onclick="backToResults()"
+          >
+            ← Back to Results
+          </button>
+        </div>
+
+        <div id="resultsPanel" class="mt-2">
+          <div class="overflow-x-auto border border-gray-200 rounded">
+            <table class="min-w-full text-sm results-table">
+              <thead class="bg-gray-50 text-gray-600 uppercase text-xs">
+                <tr>
+                  <th>Title</th>
+                  <th>Author</th>
+                  <th>Publisher</th>
+                  <th>Year</th>
+                  <th>ISBN</th>
+                  <th>Source</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="resultsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div
+        id="catalogCard"
+        class="bg-white rounded-lg shadow-lg border-t-4 border-blue-500 hidden overflow-hidden"
+      >
+        <div
+          class="bg-gray-50 px-8 py-4 border-b flex justify-between items-center"
+        >
+          <h2 class="text-xl font-bold text-gray-800">
+            MARC / Cataloging Record
+          </h2>
+          <span
+            id="sourceBadge"
+            class="bg-green-100 text-green-800 text-xs px-3 py-1 rounded-full uppercase font-bold"
+            >LOC API</span
+          >
+        </div>
+
+        <div class="p-8 grid grid-cols-12 gap-6">
+          <div
+            class="col-span-12 bg-yellow-50 p-4 rounded border border-yellow-200 grid grid-cols-2 gap-4"
+          >
+            <div>
+              <label
+                class="block text-xs font-bold text-yellow-800 uppercase mb-1"
+                >Accession Number</label
+              >
+              <input
+                type="text"
+                id="accession"
+                class="w-full p-2 border border-yellow-300 rounded bg-white text-gray-900 focus:ring-2 focus:ring-yellow-500"
+                placeholder="e.g. LIB/2026/001"
+              />
+            </div>
+            <div>
+              <label
+                class="block text-xs font-bold text-gray-500 uppercase mb-1"
+                >ISBN (020)</label
+              >
+              <input
+                type="text"
+                id="isbnField"
+                class="w-full p-2 border rounded bg-gray-100 text-gray-600"
+                readonly
+              />
+            </div>
+          </div>
+
+          <div class="col-span-12 md:col-span-8 space-y-4">
+            <div>
+              <label
+                class="block text-xs font-bold text-gray-500 uppercase mb-1"
+                >Title Statement (245)</label
+              >
+              <input
+                type="text"
+                id="title"
+                class="w-full p-2 border rounded bg-gray-50 font-semibold text-gray-900"
+              />
+            </div>
+
+            <div>
+              <label
+                class="block text-xs font-bold text-gray-500 uppercase mb-1"
+                >Main Entry - Author (100)</label
+              >
+              <input
+                type="text"
+                id="author"
+                class="w-full p-2 border rounded bg-gray-50 text-gray-900"
+              />
+            </div>
+
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <label
+                  class="block text-xs font-bold text-gray-500 uppercase mb-1"
+                  >Place (260 $a)</label
+                >
+                <input
+                  type="text"
+                  id="place"
+                  class="w-full p-2 border rounded bg-gray-50 text-gray-900"
+                />
+              </div>
+              <div>
+                <label
+                  class="block text-xs font-bold text-gray-500 uppercase mb-1"
+                  >Publisher (260 $b)</label
+                >
+                <input
+                  type="text"
+                  id="publisher"
+                  class="w-full p-2 border rounded bg-gray-50 text-gray-900"
+                />
+              </div>
+              <div>
+                <label
+                  class="block text-xs font-bold text-gray-500 uppercase mb-1"
+                  >Date (260 $c)</label
+                >
+                <input
+                  type="text"
+                  id="year"
+                  class="w-full p-2 border rounded bg-gray-50 text-gray-900"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="col-span-12 md:col-span-4 bg-blue-50 p-6 rounded border border-blue-100 space-y-4"
+          >
+            <h3
+              class="text-blue-900 font-bold border-b border-blue-200 pb-2 mb-2"
+            >
+              <i class="fas fa-tag mr-2"></i>Shelving Data
+            </h3>
+
+            <div>
+              <label
+                class="block text-xs font-bold text-blue-800 uppercase mb-1"
+                >LCC (050)</label
+              >
+              <input
+                type="text"
+                id="lcc"
+                class="w-full p-2 border border-blue-300 rounded bg-white text-blue-900 font-mono font-bold"
+              />
+            </div>
+
+            <div>
+              <label
+                class="block text-xs font-bold text-blue-800 uppercase mb-1"
+                >DDC (082)</label
+              >
+              <input
+                type="text"
+                id="ddc"
+                class="w-full p-2 border border-blue-300 rounded bg-white text-blue-900 font-mono"
+              />
+            </div>
+
+            <div>
+              <label
+                class="block text-xs font-bold text-blue-800 uppercase mb-1"
+                >Phys. Desc. (300)</label
+              >
+              <input
+                type="text"
+                id="extent"
+                class="w-full p-2 border border-blue-300 rounded bg-white text-gray-700 text-sm"
+              />
+            </div>
+          </div>
+
+          <div class="col-span-12 border-t pt-4">
+            <label class="block text-xs font-bold text-gray-500 uppercase mb-1"
+              >Subject Headings (650)</label
+            >
+            <textarea
+              id="subjects"
+              rows="2"
+              class="w-full p-2 border rounded bg-gray-50 text-gray-700 text-sm"
+            ></textarea>
+          </div>
+
+          <div class="col-span-12 mt-4 pt-4 border-t border-gray-200">
+            <h3
+              class="text-gray-500 font-bold text-xs uppercase mb-3 text-center"
+            >
+              Card Catalog Preview (Live)
+            </h3>
+
+            <div
+              class="flex justify-center bg-gray-200 p-8 rounded-lg border border-gray-300 shadow-inner"
+            >
+              <div id="catalog-card">
+                <div class="call-number" id="callNum">
+                  <div>R</div>
+                  <div>025.3</div>
+                  <div>OLO</div>
+                </div>
+
+                <div class="card-body">
+                  <div class="author-line" id="cardAuthor">
+                    Oloyede, Ayooluwa Gideon.
+                  </div>
+
+                  <div class="title-paragraph" id="cardTitleBlock">
+                    Cataloging for the future : a guide for students / by
+                    Oloyede A. Gideon. -- Ile-Ife : OAU Press, 2025.
+                  </div>
+
+                  <div class="physical-desc" id="cardPhysDesc">
+                    245 p. : ill. ; 23 cm.
+                  </div>
+
+                  <div style="font-size: 0.9em; margin-top: 5px" id="cardNotes">
+                    Includes bibliographical references and index.
+                  </div>
+
+                  <div class="tracings" id="cardTracings">
+                    1. Cataloging. 2. Library Science. I. Title.
+                  </div>
+                </div>
+
+                <div class="hole-punch"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-gray-50 px-8 py-4 border-t flex justify-end gap-3">
+          <button
+            onclick="resetForm()"
+            class="px-6 py-2 border border-gray-300 rounded text-gray-600 hover:bg-white transition"
+          >
+            Clear
+          </button>
+
+          <button
+            onclick="printCatalogCard()"
+            class="px-6 py-2 bg-gray-800 text-white rounded font-medium shadow hover:bg-gray-900 transition"
+          >
+            <i class="fas fa-print mr-2"></i>Print Card
+          </button>
+
+          <button
+            class="px-6 py-2 bg-green-600 text-white rounded font-medium shadow hover:bg-green-700 transition"
+          >
+            <i class="fas fa-save mr-2"></i>Save
+          </button>
+        </div>
+      </div>
+
+      <div id="loader" class="hidden text-center py-12">
+        <i class="fas fa-circle-notch fa-spin text-4xl text-blue-500 mb-3"></i>
+        <p class="text-gray-500">Querying Library of Congress SRU Gateway...</p>
+      </div>
+    </div>
+
+    <script>
+      let lastResults = [];
+      let lastQuery = "";
+      let lastType = "";
+
+      function onTypeChange() {
+        const map = {
+          isbn: "Scan or type an ISBN...",
+          title: "Enter book title...",
+          author: "Enter author name..."
+        };
+        const input = document.getElementById("searchInput");
+        const type = document.getElementById("searchType").value;
+        input.placeholder = map[type] || "Search...";
+        input.value = "";
+      }
+
+      function doSearch() {
+        const type = document.getElementById("searchType").value;
+        if (type === "isbn") {
+          fetchByIsbn();
+        } else {
+          fetchByText(type);
+        }
+      }
+
+      async function fetchByIsbn() {
+        let isbn = document.getElementById("searchInput").value.trim();
+        if (!isbn) return;
+
+        closeResultsPanel();
+        hideBackToResults();
+        document.getElementById("catalogCard").classList.add("hidden");
+        document.getElementById("loader").classList.remove("hidden");
+
+        try {
+          let response = await fetch(`/api/search?isbn=${encodeURIComponent(isbn)}`);
+          let ct = response.headers.get("content-type") || "";
+          if (!ct.includes("application/json")) {
+            console.error("Non-JSON response:", (await response.text()).slice(0, 300));
+            alert(
+              "Server returned HTML instead of JSON. Check Flask is running with the updated app.py"
+            );
+            return;
+          }
+
+          let data = await response.json();
+
+          if (data.success) {
+            populateCatalogForm(data, isbn);
+            document.getElementById("catalogCard").classList.remove("hidden");
+          } else {
+            alert("Book not found.");
+          }
+        } catch (err) {
+          console.error(err);
+          alert("Error connecting to server.");
+        } finally {
+          document.getElementById("loader").classList.add("hidden");
+        }
+      }
+
+      async function fetchByText(type) {
+        const query = document.getElementById("searchInput").value.trim();
+        if (!query) return;
+
+        document.getElementById("catalogCard").classList.add("hidden");
+
+        const res = await fetch(
+          `/api/search_text?query=${encodeURIComponent(query)}&type=${type}`
+        );
+        const ct = res.headers.get("content-type") || "";
+        if (!ct.includes("application/json")) {
+          console.error("Non-JSON response:", (await res.text()).slice(0, 300));
+          alert(
+            "Server returned HTML instead of JSON. Check Flask is running with the updated app.py"
+          );
+          return;
+        }
+
+        const data = await res.json();
+        if (data.success) {
+          renderResultsTable(data.results, query, type);
+        } else {
+          alert(data.error || "No results found.");
+        }
+      }
+
+      function renderResultsTable(results, query, type) {
+        lastResults = results || [];
+        lastQuery = query || "";
+        lastType = type || "";
+
+        document.getElementById("resultsSubtitle").textContent =
+          `${lastResults.length} record(s) - ${type}: "${query}"`;
+
+        const tbody = document.getElementById("resultsTableBody");
+        tbody.innerHTML = "";
+        lastResults.forEach((rec, idx) => {
+          const cls = rec.source && rec.source.includes("Congress")
+            ? "badge-loc"
+            : rec.source && rec.source.includes("Open")
+            ? "badge-ol"
+            : "badge-google";
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${rec.title || ""}</td>
+            <td>${rec.author || ""}</td>
+            <td>${rec.publisher || ""}</td>
+            <td>${rec.year || ""}</td>
+            <td>${rec.isbn || "-"}</td>
+            <td>
+              <span class="text-xs font-bold px-2 py-1 rounded-full ${cls}">
+                ${rec.source || "Unknown"}
+              </span>
+            </td>
+            <td>
+              <button
+                class="text-blue-600 font-semibold"
+                onclick="editRecord(${idx})"
+              >
+                Edit
+              </button>
+            </td>`;
+          tbody.appendChild(tr);
+        });
+
+        openResultsPanel();
+        hideBackToResults();
+      }
+
+      function editRecord(index) {
+        const record = lastResults[index];
+        if (!record) return;
+
+        populateCatalogForm(record, record.isbn || "");
+        document.getElementById("catalogCard").classList.remove("hidden");
+        closeResultsPanel();
+        showBackToResults();
+      }
+
+      function backToResults() {
+        if (!lastResults.length) return;
+        document.getElementById("resultsSubtitle").textContent =
+          `${lastResults.length} record(s) - ${lastType}: "${lastQuery}"`;
+        openResultsPanel();
+        hideBackToResults();
+      }
+
+      function openResultsPanel() {
+        document.getElementById("resultsPanel").classList.add("open");
+      }
+
+      function closeResultsPanel() {
+        document.getElementById("resultsPanel").classList.remove("open");
+      }
+
+      function showBackToResults() {
+        document.getElementById("backToResultsBtn").classList.remove("hidden");
+      }
+
+      function hideBackToResults() {
+        document.getElementById("backToResultsBtn").classList.add("hidden");
+      }
+
+      function updateSourceBadge(source) {
+        let cls =
+          "bg-yellow-100 text-yellow-800 text-xs px-3 py-1 rounded-full uppercase font-bold";
+        if (source && source.includes("Congress")) {
+          cls =
+            "bg-green-100 text-green-800 text-xs px-3 py-1 rounded-full uppercase font-bold";
+        } else if (source && source.includes("Google")) {
+          cls =
+            "bg-red-100 text-red-800 text-xs px-3 py-1 rounded-full uppercase font-bold";
+        }
+        const badge = document.getElementById("sourceBadge");
+        badge.innerText = source || "Unknown";
+        badge.className = cls;
+      }
+
+      function populateCatalogForm(data, isbnOverride) {
+        const isbn = isbnOverride || data.isbn || "";
+
+        document.getElementById("isbnField").value = isbn;
+        document.getElementById("accession").value = "";
+        document.getElementById("accession").focus();
+        document.getElementById("title").value = data.title || "";
+        document.getElementById("author").value = data.author || "";
+        document.getElementById("publisher").value = data.publisher || "";
+        document.getElementById("place").value = data.place || "";
+        document.getElementById("year").value = data.year || "";
+        document.getElementById("extent").value = data.physical_desc || "";
+        document.getElementById("lcc").value = data.lcc || "";
+        document.getElementById("ddc").value = data.ddc || "";
+        document.getElementById("subjects").value = data.subjects || "";
+
+        updateSourceBadge(data.source);
+
+        let lccSource = data.lcc && data.lcc.length > 0 ? data.lcc : "NO CALL #";
+        let lccParts = lccSource.split(" ");
+
+        let callNumHTML = lccParts.map((part) => `<div>${part}</div>`).join("");
+        document.getElementById("callNum").innerHTML = callNumHTML;
+
+        const author = data.author || "";
+        const title = data.title || "";
+        const place = data.place || "S.l.";
+        const publisher = data.publisher || "s.n.";
+        const year = (data.year || "").replace(/[\[\]]/g, "");
+
+        document.getElementById("cardAuthor").innerText = author
+          ? author + "."
+          : "";
+
+        let titleBlock = `${title} / ${author}. -- ${place} : ${publisher}, ${year}.`;
+        document.getElementById("cardTitleBlock").innerText = titleBlock;
+
+        document.getElementById("cardPhysDesc").innerText = `${
+          data.physical_desc || ""
+        } ; 23 cm.`;
+
+        if (data.subjects) {
+          let subjArray = data.subjects.split(", ");
+          let tracingHTML = "";
+          subjArray.forEach((subj, index) => {
+            if (index < 4) {
+              tracingHTML += `${index + 1}. ${subj}. `;
+            }
+          });
+          tracingHTML += "I. Title.";
+          document.getElementById("cardTracings").innerText = tracingHTML;
+        } else {
+          document.getElementById("cardTracings").innerText = "I. Title.";
+        }
+      }
+
+      function resetForm() {
+        document.getElementById("catalogCard").classList.add("hidden");
+        document.getElementById("searchInput").value = "";
+        document.getElementById("searchInput").focus();
+      }
+
+      function printCatalogCard() {
+        // This function takes the Live Data from the form and creates a clean print window
+        let author = document.getElementById("author").value;
+        let title = document.getElementById("title").value;
+        let place = document.getElementById("place").value;
+        let publisher = document.getElementById("publisher").value;
+        let year = document.getElementById("year").value;
+        let extent = document.getElementById("extent").value;
+        let subjects = document.getElementById("subjects").value;
+        let lcc =
+          document.getElementById("lcc").value ||
+          document.getElementById("ddc").value ||
+          "XXX";
+        let acc = document.getElementById("accession").value || "-------";
+
+        let subjectList = subjects
+          .split(",")
+          .map((s, i) => `${i + 1}. ${s.trim()}`)
+          .join("  ");
+
+        let printWindow = window.open("", "", "width=600,height=400");
+        printWindow.document.write(`
+                <html>
+                <head>
+                    <title>Catalog Card - ${acc}</title>
+                    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime&display=swap" rel="stylesheet">
+                    <style>
+                        body { 
+                            font-family: 'Courier Prime', "Courier New", monospace; 
+                            padding: 20px; 
+                            background: white; 
+                            display: flex; 
+                            justify-content: center; 
+                        }
+                        .card {
+                            width: 5in;   
+                            height: 3in;  
+                            padding: 0.25in;
+                            border: 1px solid #ccc; /* Border helps cut guide */
+                            position: relative;
+                            font-size: 11pt;
+                            line-height: 1.2;
+                        }
+                        .call-number {
+                            position: absolute;
+                            top: 0.25in;
+                            left: 0.25in;
+                            font-weight: bold;
+                            width: 0.8in;
+                        }
+                        .body-text {
+                            margin-left: 0.8in; 
+                        }
+                        .hanging-indent {
+                            padding-left: 20px;
+                            text-indent: -20px;
+                        }
+                        .tracings {
+                            margin-top: 15px;
+                            font-size: 9pt;
+                        }
+                        @media print {
+                            .card { border: none; } /* No border on actual print */
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="card">
+                        <div class="call-number">
+                            ${lcc.replace(/\s/g, "<br>")}
+                        </div>
+                        
+                        <div class="body-text">
+                            <strong>${author}</strong>
+                            <div class="hanging-indent">
+                                ${title} / ${author}. -- ${place} : ${publisher}, ${year}.
+                            </div>
+                            <div style="margin-top: 5px;">
+                                ${extent} ; 23 cm.
+                            </div>
+                            <div class="tracings">
+                                ${subjectList}
+                            </div>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            `);
+
+        printWindow.document.close();
+        printWindow.focus();
+
+        setTimeout(() => {
+          printWindow.print();
+          printWindow.close();
+        }, 500);
+      }
+    </script>
+  </body>
+</html>
