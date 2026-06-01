@@ -187,6 +187,168 @@ def fetch_catalog_data(isbn):
 
     return {"success": False, "error": "Book not found in LOC, Open Library, or Google."}
 
+def search_by_title_author(query, search_type="title"):
+    results = []
+    seen = set()
+
+    # 1. Library of Congress SRU
+    try:
+        loc_q = f'dc.title="{query}"' if search_type == "title" else f'dc.creator="{query}"'
+        r = requests.get(
+            "http://lx2.loc.gov:210/LCDB",
+            params={
+                "operation": "searchRetrieve",
+                "version": "1.1",
+                "query": loc_q,
+                "maximumRecords": "10",
+                "recordSchema": "mods"
+            },
+            timeout=10
+        )
+
+        if "numberOfRecords>0<" not in r.text:
+            ns = {
+                'zs': 'http://www.loc.gov/zing/srw/',
+                'mods': 'http://www.loc.gov/mods/v3'
+            }
+            root = ET.fromstring(r.content)
+
+            for mods in root.findall('.//mods:mods', ns):
+                t = mods.findtext('.//mods:titleInfo/mods:title', default="", namespaces=ns)
+                s = mods.findtext('.//mods:titleInfo/mods:subTitle', default="", namespaces=ns)
+                full_title = f"{t}: {s}" if s else t
+                key = full_title.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                auth = mods.findtext(
+                    './/mods:name[@usage="primary"]/mods:namePart',
+                    default="",
+                    namespaces=ns
+                ) or mods.findtext('.//mods:name/mods:namePart', default="", namespaces=ns)
+                isbn = ""
+                for ident in mods.findall('.//mods:identifier', ns):
+                    if ident.get('type') == 'isbn':
+                        isbn = ident.text or ""
+                        break
+                subjs = [
+                    x.text
+                    for s_ in mods.findall('.//mods:subject', ns)
+                    for x in [s_.find('mods:topic', ns)]
+                    if x is not None and x.text
+                ]
+
+                results.append({
+                    "source": "Library of Congress",
+                    "title": full_title,
+                    "author": auth,
+                    "publisher": mods.findtext(
+                        './/mods:originInfo/mods:agent/mods:namePart',
+                        default="",
+                        namespaces=ns
+                    ),
+                    "place": mods.findtext(
+                        './/mods:originInfo/mods:place/mods:placeTerm[@type="text"]',
+                        default="",
+                        namespaces=ns
+                    ),
+                    "year": mods.findtext(
+                        './/mods:originInfo/mods:dateIssued',
+                        default="",
+                        namespaces=ns
+                    ),
+                    "physical_desc": mods.findtext(
+                        './/mods:physicalDescription/mods:extent',
+                        default="",
+                        namespaces=ns
+                    ),
+                    "lcc": mods.findtext(
+                        './/mods:classification[@authority="lcc"]',
+                        default="",
+                        namespaces=ns
+                    ),
+                    "ddc": mods.findtext(
+                        './/mods:classification[@authority="ddc"]',
+                        default="",
+                        namespaces=ns
+                    ),
+                    "isbn": isbn,
+                    "subjects": ", ".join(subjs[:8])
+                })
+    except Exception as e:
+        print(f"LOC error: {e}")
+
+    # 2. Open Library
+    try:
+        param = "title" if search_type == "title" else "author"
+        r = requests.get(
+            "https://openlibrary.org/search.json",
+            params={param: query, "limit": 5},
+            timeout=8
+        )
+        for doc in r.json().get("docs", []):
+            t = doc.get("title", "Unknown")
+            if t.lower() in seen:
+                continue
+            seen.add(t.lower())
+            isbn_list = doc.get("isbn", [])
+            results.append({
+                "source": "Open Library",
+                "title": t,
+                "author": ", ".join(doc.get("author_name", [])[:2]),
+                "publisher": (doc.get("publisher") or [""])[0],
+                "place": (doc.get("publish_place") or [""])[0],
+                "year": str(doc.get("first_publish_year", "")),
+                "physical_desc": f"{doc.get('number_of_pages_median', '?')} pages",
+                "lcc": (doc.get("lcc") or [""])[0],
+                "ddc": (doc.get("ddc") or [""])[0],
+                "isbn": isbn_list[0] if isbn_list else "",
+                "subjects": ", ".join(doc.get("subject", [])[:5])
+            })
+    except Exception as e:
+        print(f"Open Library error: {e}")
+
+    # 3. Google Books
+    try:
+        prefix = "intitle" if search_type == "title" else "inauthor"
+        r = requests.get(
+            "https://www.googleapis.com/books/v1/volumes",
+            params={"q": f"{prefix}:{query}", "maxResults": 5},
+            timeout=5
+        )
+        for item in r.json().get("items", []):
+            b = item.get("volumeInfo", {})
+            t = b.get("title", "Unknown")
+            if t.lower() in seen:
+                continue
+            seen.add(t.lower())
+            isbn = next(
+                (
+                    i["identifier"]
+                    for i in b.get("industryIdentifiers", [])
+                    if i["type"] in ("ISBN_13", "ISBN_10")
+                ),
+                ""
+            )
+            results.append({
+                "source": "Google Books",
+                "title": t,
+                "author": ", ".join(b.get("authors", [])),
+                "publisher": b.get("publisher", ""),
+                "place": "",
+                "year": b.get("publishedDate", ""),
+                "physical_desc": f"{b.get('pageCount', '?')} pages",
+                "lcc": "",
+                "ddc": "",
+                "isbn": isbn,
+                "subjects": ", ".join(b.get("categories", []))
+            })
+    except Exception as e:
+        print(f"Google Books error: {e}")
+
+    return results
+
 # --- ROUTES ---
 @app.route('/')
 def index():
@@ -197,6 +359,18 @@ def search_api():
     isbn = request.args.get('isbn')
     result = fetch_catalog_data(isbn)
     return jsonify(result)
+
+@app.route('/api/search_text', methods=['GET'])
+def search_text_api():
+    try:
+        query = request.args.get('query', '').strip()
+        search_type = request.args.get('type', 'title')
+        if not query:
+            return jsonify({"success": False, "error": "No query provided."})
+        results = search_by_title_author(query, search_type)
+        return jsonify({"success": True, "results": results, "count": len(results)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

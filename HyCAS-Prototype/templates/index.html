@@ -81,6 +81,95 @@
         border-radius: 50%;
         border: 1px dashed #aaa;
       }
+
+      /* Unified search bar */
+      .search-bar {
+        display: flex;
+        border: 2px solid #d1d5db;
+        border-radius: 8px;
+        overflow: hidden;
+        transition: border-color 0.2s, box-shadow 0.2s;
+        background: white;
+      }
+      .search-bar:focus-within {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+      }
+      .search-type-select {
+        border: none;
+        border-right: 2px solid #e5e7eb;
+        background: #f9fafb;
+        color: #1e40af;
+        font-weight: 700;
+        font-size: 0.82rem;
+        padding: 0 28px 0 12px;
+        cursor: pointer;
+        outline: none;
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231e40af' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+        min-width: 130px;
+      }
+      .search-input {
+        flex: 1;
+        border: none;
+        padding: 14px 16px;
+        font-size: 1rem;
+        outline: none;
+        background: transparent;
+      }
+      .search-btn {
+        background: #1d4ed8;
+        color: white;
+        border: none;
+        padding: 0 28px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .search-btn:hover {
+        background: #1e40af;
+      }
+
+      /* Results slide-in */
+      #resultsPanel {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.35s ease;
+      }
+      #resultsPanel.open {
+        max-height: 800px;
+      }
+
+      /* Source badges */
+      .badge-loc {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .badge-ol {
+        background: #fef9c3;
+        color: #854d0e;
+      }
+      .badge-google {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+
+      .results-table th,
+      .results-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #e5e7eb;
+        vertical-align: top;
+      }
+      .results-table tr:last-child td {
+        border-bottom: none;
+      }
+      .back-results-btn {
+        color: #1d4ed8;
+        font-weight: 600;
+      }
     </style>
   </head>
   <body class="bg-gray-100 min-h-screen font-sans">
@@ -101,26 +190,58 @@
     </nav>
 
     <div class="container mx-auto p-8 max-w-5xl">
-      <div
-        class="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-8 flex gap-4"
-      >
-        <div class="flex-grow relative">
-          <i
-            class="fas fa-barcode absolute left-4 top-4 text-gray-400 text-lg"
-          ></i>
+      <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-8">
+        <div class="search-bar">
+          <select
+            id="searchType"
+            class="search-type-select"
+            onchange="onTypeChange()"
+          >
+            <option value="isbn">ISBN</option>
+            <option value="title">Title</option>
+            <option value="author"> Author</option>
+          </select>
           <input
             type="text"
-            id="isbnInput"
-            placeholder="Scan ISBN (e.g. 9780134092669)"
-            class="w-full pl-12 p-3 border border-gray-300 rounded text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+            id="searchInput"
+            class="search-input"
+            placeholder="Scan or type an ISBN..."
+            onkeydown="if(event.key==='Enter') doSearch()"
           />
+          <button class="search-btn" onclick="doSearch()">
+            <i class="fas fa-search"></i> Search
+          </button>
         </div>
-        <button
-          onclick="fetchMetadata()"
-          class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded text-lg font-medium shadow-md transition"
-        >
-          Retrieve Record
-        </button>
+
+        <div class="flex items-center justify-between mt-3">
+          <p id="resultsSubtitle" class="text-sm text-gray-500"></p>
+          <button
+            id="backToResultsBtn"
+            class="back-results-btn hidden"
+            onclick="backToResults()"
+          >
+            ← Back to Results
+          </button>
+        </div>
+
+        <div id="resultsPanel" class="mt-2">
+          <div class="overflow-x-auto border border-gray-200 rounded">
+            <table class="min-w-full text-sm results-table">
+              <thead class="bg-gray-50 text-gray-600 uppercase text-xs">
+                <tr>
+                  <th>Title</th>
+                  <th>Author</th>
+                  <th>Publisher</th>
+                  <th>Year</th>
+                  <th>ISBN</th>
+                  <th>Source</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="resultsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div
@@ -365,76 +486,55 @@
     </div>
 
     <script>
-      async function fetchMetadata() {
-        let isbn = document.getElementById("isbnInput").value.trim();
+      let lastResults = [];
+      let lastQuery = "";
+      let lastType = "";
+
+      function onTypeChange() {
+        const map = {
+          isbn: "Scan or type an ISBN...",
+          title: "Enter book title...",
+          author: "Enter author name..."
+        };
+        const input = document.getElementById("searchInput");
+        const type = document.getElementById("searchType").value;
+        input.placeholder = map[type] || "Search...";
+        input.value = "";
+      }
+
+      function doSearch() {
+        const type = document.getElementById("searchType").value;
+        if (type === "isbn") {
+          fetchByIsbn();
+        } else {
+          fetchByText(type);
+        }
+      }
+
+      async function fetchByIsbn() {
+        let isbn = document.getElementById("searchInput").value.trim();
         if (!isbn) return;
 
+        closeResultsPanel();
+        hideBackToResults();
         document.getElementById("catalogCard").classList.add("hidden");
         document.getElementById("loader").classList.remove("hidden");
 
         try {
-          let response = await fetch(`/api/search?isbn=${isbn}`);
+          let response = await fetch(`/api/search?isbn=${encodeURIComponent(isbn)}`);
+          let ct = response.headers.get("content-type") || "";
+          if (!ct.includes("application/json")) {
+            console.error("Non-JSON response:", (await response.text()).slice(0, 300));
+            alert(
+              "Server returned HTML instead of JSON. Check Flask is running with the updated app.py"
+            );
+            return;
+          }
+
           let data = await response.json();
 
           if (data.success) {
-            // --- 1. Populate FORM Inputs ---
-            document.getElementById("isbnField").value = isbn;
-            document.getElementById("accession").value = "";
-            document.getElementById("accession").focus();
-            document.getElementById("title").value = data.title;
-            document.getElementById("author").value = data.author;
-            document.getElementById("publisher").value = data.publisher;
-            document.getElementById("place").value = data.place;
-            document.getElementById("year").value = data.year;
-            document.getElementById("extent").value = data.physical_desc;
-            document.getElementById("lcc").value = data.lcc;
-            document.getElementById("ddc").value = data.ddc;
-            document.getElementById("subjects").value = data.subjects;
-
-            let badge = document.getElementById("sourceBadge");
-            badge.innerText = data.source;
-            badge.className = data.source.includes("Congress")
-              ? "bg-green-100 text-green-800 text-xs px-3 py-1 rounded-full uppercase font-bold"
-              : "bg-yellow-100 text-yellow-800 text-xs px-3 py-1 rounded-full uppercase font-bold";
-
-            let lccSource =
-              data.lcc && data.lcc.length > 0 ? data.lcc : "NO CALL #";
-            let lccParts = lccSource.split(" ");
-
-            let callNumHTML = lccParts
-              .map((part) => `<div>${part}</div>`)
-              .join("");
-            document.getElementById("callNum").innerHTML = callNumHTML;
-
-            // Main Entry
-            document.getElementById("cardAuthor").innerText = data.author + ".";
-
-            // Title Paragraph (ISBD: Title / Author. -- Place : Pub, Year.)
-            let cleanYear = data.year.replace(/[\[\]]/g, "");
-            let titleBlock = `${data.title} / ${data.author}. — ${
-              data.place || "S.l."
-            } : ${data.publisher || "s.n."}, ${cleanYear}.`;
-            document.getElementById("cardTitleBlock").innerText = titleBlock;
-
-            // Physical Description
-            document.getElementById("cardPhysDesc").innerText = `${
-              data.physical_desc || ""
-            } ; 23 cm.`;
-
-            // Tracings (Subjects)
-            if (data.subjects) {
-              let subjArray = data.subjects.split(", ");
-              let tracingHTML = "";
-              subjArray.forEach((subj, index) => {
-                if (index < 4) {
-                  // Limit to 4 subjects for space
-                  tracingHTML += `${index + 1}. ${subj}. `;
-                }
-              });
-              tracingHTML += "I. Title.";
-              document.getElementById("cardTracings").innerText = tracingHTML;
-            }
-
+            populateCatalogForm(data, isbn);
             document.getElementById("catalogCard").classList.remove("hidden");
           } else {
             alert("Book not found.");
@@ -447,10 +547,184 @@
         }
       }
 
+      async function fetchByText(type) {
+        const query = document.getElementById("searchInput").value.trim();
+        if (!query) return;
+
+        document.getElementById("catalogCard").classList.add("hidden");
+
+        const res = await fetch(
+          `/api/search_text?query=${encodeURIComponent(query)}&type=${type}`
+        );
+        const ct = res.headers.get("content-type") || "";
+        if (!ct.includes("application/json")) {
+          console.error("Non-JSON response:", (await res.text()).slice(0, 300));
+          alert(
+            "Server returned HTML instead of JSON. Check Flask is running with the updated app.py"
+          );
+          return;
+        }
+
+        const data = await res.json();
+        if (data.success) {
+          renderResultsTable(data.results, query, type);
+        } else {
+          alert(data.error || "No results found.");
+        }
+      }
+
+      function renderResultsTable(results, query, type) {
+        lastResults = results || [];
+        lastQuery = query || "";
+        lastType = type || "";
+
+        document.getElementById("resultsSubtitle").textContent =
+          `${lastResults.length} record(s) - ${type}: "${query}"`;
+
+        const tbody = document.getElementById("resultsTableBody");
+        tbody.innerHTML = "";
+        lastResults.forEach((rec, idx) => {
+          const cls = rec.source && rec.source.includes("Congress")
+            ? "badge-loc"
+            : rec.source && rec.source.includes("Open")
+            ? "badge-ol"
+            : "badge-google";
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${rec.title || ""}</td>
+            <td>${rec.author || ""}</td>
+            <td>${rec.publisher || ""}</td>
+            <td>${rec.year || ""}</td>
+            <td>${rec.isbn || "-"}</td>
+            <td>
+              <span class="text-xs font-bold px-2 py-1 rounded-full ${cls}">
+                ${rec.source || "Unknown"}
+              </span>
+            </td>
+            <td>
+              <button
+                class="text-blue-600 font-semibold"
+                onclick="editRecord(${idx})"
+              >
+                Edit
+              </button>
+            </td>`;
+          tbody.appendChild(tr);
+        });
+
+        openResultsPanel();
+        hideBackToResults();
+      }
+
+      function editRecord(index) {
+        const record = lastResults[index];
+        if (!record) return;
+
+        populateCatalogForm(record, record.isbn || "");
+        document.getElementById("catalogCard").classList.remove("hidden");
+        closeResultsPanel();
+        showBackToResults();
+      }
+
+      function backToResults() {
+        if (!lastResults.length) return;
+        document.getElementById("resultsSubtitle").textContent =
+          `${lastResults.length} record(s) - ${lastType}: "${lastQuery}"`;
+        openResultsPanel();
+        hideBackToResults();
+      }
+
+      function openResultsPanel() {
+        document.getElementById("resultsPanel").classList.add("open");
+      }
+
+      function closeResultsPanel() {
+        document.getElementById("resultsPanel").classList.remove("open");
+      }
+
+      function showBackToResults() {
+        document.getElementById("backToResultsBtn").classList.remove("hidden");
+      }
+
+      function hideBackToResults() {
+        document.getElementById("backToResultsBtn").classList.add("hidden");
+      }
+
+      function updateSourceBadge(source) {
+        let cls =
+          "bg-yellow-100 text-yellow-800 text-xs px-3 py-1 rounded-full uppercase font-bold";
+        if (source && source.includes("Congress")) {
+          cls =
+            "bg-green-100 text-green-800 text-xs px-3 py-1 rounded-full uppercase font-bold";
+        } else if (source && source.includes("Google")) {
+          cls =
+            "bg-red-100 text-red-800 text-xs px-3 py-1 rounded-full uppercase font-bold";
+        }
+        const badge = document.getElementById("sourceBadge");
+        badge.innerText = source || "Unknown";
+        badge.className = cls;
+      }
+
+      function populateCatalogForm(data, isbnOverride) {
+        const isbn = isbnOverride || data.isbn || "";
+
+        document.getElementById("isbnField").value = isbn;
+        document.getElementById("accession").value = "";
+        document.getElementById("accession").focus();
+        document.getElementById("title").value = data.title || "";
+        document.getElementById("author").value = data.author || "";
+        document.getElementById("publisher").value = data.publisher || "";
+        document.getElementById("place").value = data.place || "";
+        document.getElementById("year").value = data.year || "";
+        document.getElementById("extent").value = data.physical_desc || "";
+        document.getElementById("lcc").value = data.lcc || "";
+        document.getElementById("ddc").value = data.ddc || "";
+        document.getElementById("subjects").value = data.subjects || "";
+
+        updateSourceBadge(data.source);
+
+        let lccSource = data.lcc && data.lcc.length > 0 ? data.lcc : "NO CALL #";
+        let lccParts = lccSource.split(" ");
+
+        let callNumHTML = lccParts.map((part) => `<div>${part}</div>`).join("");
+        document.getElementById("callNum").innerHTML = callNumHTML;
+
+        const author = data.author || "";
+        const title = data.title || "";
+        const place = data.place || "S.l.";
+        const publisher = data.publisher || "s.n.";
+        const year = (data.year || "").replace(/[\[\]]/g, "");
+
+        document.getElementById("cardAuthor").innerText = author
+          ? author + "."
+          : "";
+
+        let titleBlock = `${title} / ${author}. -- ${place} : ${publisher}, ${year}.`;
+        document.getElementById("cardTitleBlock").innerText = titleBlock;
+
+        document.getElementById("cardPhysDesc").innerText = `${
+          data.physical_desc || ""
+        } ; 23 cm.`;
+
+        if (data.subjects) {
+          let subjArray = data.subjects.split(", ");
+          let tracingHTML = "";
+          subjArray.forEach((subj, index) => {
+            if (index < 4) {
+              tracingHTML += `${index + 1}. ${subj}. `;
+            }
+          });
+          tracingHTML += "I. Title.";
+          document.getElementById("cardTracings").innerText = tracingHTML;
+        } else {
+          document.getElementById("cardTracings").innerText = "I. Title.";
+        }
+      }
+
       function resetForm() {
         document.getElementById("catalogCard").classList.add("hidden");
-        document.getElementById("isbnInput").value = "";
-        document.getElementById("isbnInput").focus();
+        document.getElementById("searchInput").value = "";
+        document.getElementById("searchInput").focus();
       }
 
       function printCatalogCard() {
